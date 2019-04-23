@@ -25,8 +25,8 @@ int max_thresh = 255;
 static int howmanycam = 3;
 static int howmanyframe = 2;
 static int howmanypc = 4;
-static int NUMBER_OF_POINTS = 4;
-static int savepoints = 0; //0 for reading points from file
+int NUMBER_OF_POINTS = 0;
+static int savepoints = 1; //0 for reading points from file
 ifstream readfile;
 ofstream myfile;
 string outputfilename = "points.txt";
@@ -80,6 +80,10 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 
 		pnts2d[whichcam][whichframe].push_back(point);
 		myfile<<whichcam<<" "<<whichframe<<" "<<x<<" "<<y<<endl;
+		if(whichcam==0 && whichframe==0){
+			NUMBER_OF_POINTS++;
+		}
+
 //		P2d [4][2][10] = point;
 	}
 }
@@ -315,6 +319,9 @@ int main() {
 									<< temp << endl;
 
 							pnts2d[camera][frame].push_back(temp);
+							if (camera == 0 && frame == 0) {
+								NUMBER_OF_POINTS++;
+							}
 						}
 
 					}
@@ -359,7 +366,7 @@ int main() {
 
 	//for(int cam = 0; cam<4; cam++){
 	for (int aux = 1; aux < howmanycam; aux++) {
-		for (int p = 0; p < 4; p++) {
+		for (int p = 0; p < NUMBER_OF_POINTS; p++) {
 			float x1 = P3D[0][p][0];
 			float y1 = P3D[0][p][1];
 			float z1 = P3D[0][p][2];
@@ -384,7 +391,7 @@ int main() {
 
 //////////----------------Apply PW transformation
 	for (int cam = 0; cam < howmanycam; cam++) {
-		for (int p = 0; p < 4; p++) {
+		for (int p = 0; p < NUMBER_OF_POINTS; p++) {
 			Mat temp3D(3, 1, cv::DataType<float>::type, Scalar(1));
 			temp3D.at<float>(0, 0) = P3D[cam][p][0];
 			temp3D.at<float>(1, 0) = P3D[cam][p][1];
@@ -406,7 +413,7 @@ int main() {
 
 	//for(int cam = 0; cam<4; cam++){
 	for (int aux = 1; aux < howmanycam; aux++) {
-		for (int p = 0; p < 4; p++) {
+		for (int p = 0; p < NUMBER_OF_POINTS; p++) {
 			float x1 = P3D[0][p][0];
 			float y1 = P3D[0][p][1];
 			float z1 = P3D[0][p][2];
@@ -433,6 +440,6 @@ int main() {
 		myfile.close();
 	}
 
-
+	cout<<"Total Number of points in one frame : "<<NUMBER_OF_POINTS<<endl;
 	return 0;
 }
