@@ -22,32 +22,38 @@ using namespace std;
 
 int thresh = 220;
 int max_thresh = 255;
-int howmanycam = 3;
-//static int NUMBER_OF_POINTS = 4;
+static int howmanycam = 3;
+static int howmanyframe = 2;
+static int howmanypc = 4;
+static int NUMBER_OF_POINTS = 4;
+static int savepoints = 0; //0 for reading points from file
+ifstream readfile;
+ofstream myfile;
+string outputfilename = "points.txt";
 
 //vector<Mat> srcs;
 //vector<Mat> grays;
 //vector<Mat> dsts;
-vector<vector<Mat>> P(4);
-vector<vector<Mat>> Ks(4);
-vector<vector<Mat>> Rs(4);
-vector<vector<Mat>> Rts(4);
-vector<vector<Mat>> ts(4);
-vector<vector<Mat>> quats(4);
-vector<vector<Mat>> Cs(4);
+vector<vector<Mat>> P(howmanycam);
+vector<vector<Mat>> Ks(howmanycam);
+vector<vector<Mat>> Rs(howmanycam);
+vector<vector<Mat>> Rts(howmanycam);
+vector<vector<Mat>> ts(howmanycam);
+vector<vector<Mat>> quats(howmanycam);
+vector<vector<Mat>> Cs(howmanycam);
 
-vector<vector<vector<Point2f>>> pnts2d(4, vector<vector<Point2f> >(2));
+vector<vector<vector<Point2f>>> pnts2d(howmanycam, vector<vector<Point2f> >(howmanyframe));
 //vector<vector<vector<int> > > vec (5,vector<vector<int> >(3,vector <int>(2,4)));
 
 //Point2f P2d [4][2][10];
 
-vector<vector<Mat>> points3D(4);
-vector<vector<Mat>> points3Dnorm(4);
+vector<vector<Mat>> points3D(howmanycam);
+vector<vector<Mat>> points3Dnorm(howmanycam);
 
-vector<vector<Vec3f>> P3D(4);
+vector<vector<Vec3f>> P3D(howmanycam);
 
-vector<Mat> RsPW(4);
-vector<Mat> tsPW(4);
+vector<Mat> RsPW(howmanypc);
+vector<Mat> tsPW(howmanypc);
 
 float ComputeDistance(float x1, float y1, float z1, float x2, float y2,
 		float z2) {
@@ -68,9 +74,12 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 	if (event == EVENT_LBUTTONDOWN) {
 		cout << "Left button of the mouse is clicked - position (" << x << ", "
 				<< y << ") in " << whichcam << endl;
-		Point2f point = ((Point_<float> ) x, (Point_<float> ) y);
+//		Point2f point = ((Point_<float> ) x, (Point_<float> ) y);
+		Point2f point(x,y);
+		cout<<"point is "<<point<<endl;
 
 		pnts2d[whichcam][whichframe].push_back(point);
+		myfile<<whichcam<<" "<<whichframe<<" "<<x<<" "<<y<<endl;
 //		P2d [4][2][10] = point;
 	}
 }
@@ -117,6 +126,11 @@ void cornerHarris_demo(Mat &gray, int whichcam, int whichframe) {
 }
 
 int main() {
+
+	if (savepoints == 1) {
+		myfile.open(outputfilename);
+	}
+
 
 //Result from pairwise alignment stored---->
 //	RsPW[0] = Mat::eye(3, 3, CV_32F);
@@ -260,7 +274,53 @@ int main() {
 
 				//cout<<"Projection Matrix: "<< P[i]<<endl;
 
-				cornerHarris_demo(gray, cam, frame);
+				if(savepoints==1){
+					cornerHarris_demo(gray, cam, frame);
+				}
+
+				else if(savepoints==0){//read points from file
+					readfile = ifstream(outputfilename);
+//					vector<string> fid;
+					vector<string> line2;
+					std::string singleline;
+
+					int c2 = 0;
+
+
+					while (std::getline(readfile, singleline)) {
+						line2.push_back(singleline);
+						cout << singleline << endl;
+
+						stringstream linestream2(singleline);
+						string val2;
+						vector<string> linedata2;
+						while (linestream2 >> val2) {
+							linedata2.push_back(val2);
+							//cout<<val<<endl;
+						}
+
+						c2 = 0;
+						while (c2 < linedata2.size()) {
+							cout<<linedata2.size()<<endl;
+							int camera = strtof((linedata2[c2]).c_str(), 0);
+							c2++;
+							int frame = strtof((linedata2[c2]).c_str(), 0);
+							c2++;
+							float x = strtof((linedata2[c2]).c_str(), 0);
+							c2++;
+							float y = strtof((linedata2[c2]).c_str(), 0);
+							c2++;
+							Point2f temp(x, y);
+							cout << "point is for " << camera << ", " << frame
+									<< temp << endl;
+
+							pnts2d[camera][frame].push_back(temp);
+						}
+
+					}
+
+				}//else end
+
 
 			}
 
@@ -368,6 +428,11 @@ int main() {
 	finaldistanceMPW = finaldistanceMPW / count;
 	cout << count << endl;
 	cout << "Average distance in MPW: " << finaldistanceMPW << endl;
+
+	if(savepoints==1){
+		myfile.close();
+	}
+
 
 	return 0;
 }
