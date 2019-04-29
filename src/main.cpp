@@ -27,6 +27,7 @@ static int howmanyframe = 2;
 static int howmanypc = 4;
 int NUMBER_OF_POINTS = 0;
 static int savepoints = 1; //0 for reading points from file
+static int quatmethod = 1;//1 for angle calc; 0 for document method
 ifstream readfile;
 ofstream myfile;
 string outputfilename = "points.txt";
@@ -156,26 +157,35 @@ int main() {
 //	float dataT3[3] = { 0.0447484, 0.0151607, 0.0750883 };
 //	tsPW[3] = cv::Mat(3, 1, CV_32F, dataT3);
 
-	RsPW[0] = Mat::eye(3, 3, CV_32F);
+
 	float dataR1[9] = { 0.992237, 0.00557466, 0.124237, -0.00454524, 0.999953,
 			-0.00856787, -0.124279, 0.00793667, 0.992216 };
-	RsPW[1] = cv::Mat(3, 3, CV_32F, dataR1);
+
 	float dataR2[9] = { 0.999373, 0.00450517, 0.0351071, -0.00517983, 0.999803,
 			0.0191499, -0.0350139, -0.0193197, 0.9992 };
-	RsPW[2] = cv::Mat(3, 3, CV_32F, dataR2);
+
 	float dataR3[9] = { 0.999502, -0.00188404, 0.0314827, 0.00214578, 0.999964,
 			-0.00828202, -0.031466, 0.00834546, 0.99947 };
+
+	RsPW[0] = Mat::eye(3, 3, CV_32F);
+	RsPW[1] = cv::Mat(3, 3, CV_32F, dataR1);
+	RsPW[2] = cv::Mat(3, 3, CV_32F, dataR3);
 	RsPW[3] = cv::Mat(3, 3, CV_32F, dataR3);
 
-	tsPW[0] = Mat::zeros(3, 1, CV_32F);
+
 	float dataT1[3] = { -0.127405, 0.094442, 0.0917713 };
-	tsPW[1] = cv::Mat(3, 1, CV_32F, dataT1);
+
 	float dataT2[3] = { 0.0655498, 0.040169, 0.126631 };
-	tsPW[2] = cv::Mat(3, 1, CV_32F, dataT2);
+
 	float dataT3[3] = { -0.0568461, 0.0256409, 0.0848358 };
+
+
+	tsPW[0] = Mat::zeros(3, 1, CV_32F);
+	tsPW[1] = cv::Mat(3, 1, CV_32F, dataT1);
+	tsPW[2] = cv::Mat(3, 1, CV_32F, dataT3);
 	tsPW[3] = cv::Mat(3, 1, CV_32F, dataT3);
 
-	string inputdir = "data1904/cam0";
+	string inputdir = "data1904v2/cam0";
 
 	for (int cam = 0; cam < howmanycam; cam++) {
 		for (int frame = 0; frame < 2; frame++) {
@@ -230,6 +240,13 @@ int main() {
 					quat.at<float>(j, 0) = temp;
 					c++;
 				}
+				//for Mirror along y axis
+
+				quat.at<float>(1, 0) *= -1;
+//				quat.at<float>(2, 0) *= -1;
+				quat.at<float>(3, 0) *= -1;
+
+				/////////////////////////////
 				quats[cam].push_back(quat);
 
 				//cout<<"quat : " << quat<<endl;
@@ -245,12 +262,29 @@ int main() {
 				float qx = quat.at<float>(1, 0);
 				float qy = quat.at<float>(2, 0);
 				float qz = quat.at<float>(3, 0);
-				Mat rvec(3, 1, cv::DataType<float>::type, Scalar(1));
-				float angle = 2 * acos(qw);
-				rvec.at<float>(0, 0) = (qx / sqrt(1 - qw * qw)) * angle;
-				rvec.at<float>(1, 0) = (qy / sqrt(1 - qw * qw)) * angle;
-				rvec.at<float>(2, 0) = (qz / sqrt(1 - qw * qw)) * angle;
-				Rodrigues(rvec, rotm);
+
+				if (quatmethod == 1) {
+
+					Mat rvec(3, 1, cv::DataType<float>::type, Scalar(1));
+					float angle = 2 * acos(qw);
+					rvec.at<float>(0, 0) = (qx / sqrt(1 - qw * qw)) * angle;
+					rvec.at<float>(1, 0) = (qy / sqrt(1 - qw * qw)) * angle;
+					rvec.at<float>(2, 0) = (qz / sqrt(1 - qw * qw)) * angle;
+					Rodrigues(rvec, rotm);
+				}
+
+				if (quatmethod == 0) {
+					rotm.at<float>(0, 0) = 2*((qw*qw)+(qx*qx)-0.5);
+					rotm.at<float>(0, 1) = 2*((qx*qy) - (qw*qz));
+					rotm.at<float>(0, 2) = 2*((qw*qy) + (qx*qz));
+					rotm.at<float>(1, 0) = 2*((qw*qz) + (qx*qy));
+					rotm.at<float>(1, 1) = 2*((qw*qw)+(qy*qy)-0.5);
+					rotm.at<float>(1, 2) = 2*((qy*qz)-(qw*qx));
+					rotm.at<float>(2, 0) = 2*((qx*qz)-(qw*qy));
+					rotm.at<float>(2, 1) = 2*((qw*qx)+(qy*qz));
+					rotm.at<float>(2, 2) = 2*((qy*qy)+(qz*qz)-0.5);
+				}
+
 
 				rotm = rotm.t();
 				Rs[cam].push_back(rotm);
@@ -282,7 +316,7 @@ int main() {
 					cornerHarris_demo(gray, cam, frame);
 				}
 
-				else if(savepoints==0){//read points from file
+				else if(savepoints==0 && cam == 0 && frame == 0){//read points from file
 					readfile = ifstream(outputfilename);
 //					vector<string> fid;
 					vector<string> line2;
@@ -293,7 +327,7 @@ int main() {
 
 					while (std::getline(readfile, singleline)) {
 						line2.push_back(singleline);
-						cout << singleline << endl;
+//						cout << singleline << endl;
 
 						stringstream linestream2(singleline);
 						string val2;
@@ -305,7 +339,7 @@ int main() {
 
 						c2 = 0;
 						while (c2 < linedata2.size()) {
-							cout<<linedata2.size()<<endl;
+//							cout<<linedata2.size()<<endl;
 							int camera = strtof((linedata2[c2]).c_str(), 0);
 							c2++;
 							int frame = strtof((linedata2[c2]).c_str(), 0);
@@ -315,8 +349,8 @@ int main() {
 							float y = strtof((linedata2[c2]).c_str(), 0);
 							c2++;
 							Point2f temp(x, y);
-							cout << "point is for " << camera << ", " << frame
-									<< temp << endl;
+//							cout << "point is for " << camera << ", " << frame
+//									<< temp << endl;
 
 							pnts2d[camera][frame].push_back(temp);
 							if (camera == 0 && frame == 0) {
@@ -333,6 +367,10 @@ int main() {
 
 		}
 	}
+
+
+
+
 
 	for (int cam = 0; cam < howmanycam; cam++) {
 		Mat temp(4, pnts2d[cam][0].size(), CV_32F);
@@ -390,6 +428,7 @@ int main() {
 	cout << "Average distance in Mu: " << finaldistanceMU << endl;
 
 //////////----------------Apply PW transformation
+	cout<<"3D points after PW transformation : "<<endl;
 	for (int cam = 0; cam < howmanycam; cam++) {
 		for (int p = 0; p < NUMBER_OF_POINTS; p++) {
 			Mat temp3D(3, 1, cv::DataType<float>::type, Scalar(1));
@@ -397,12 +436,14 @@ int main() {
 			temp3D.at<float>(1, 0) = P3D[cam][p][1];
 			temp3D.at<float>(2, 0) = P3D[cam][p][2];
 
-//			temp3D = (RsPW[cam] * temp3D) + tsPW[cam];
-			temp3D = (RsPW[cam].t() * temp3D) - tsPW[cam];
+			temp3D = (RsPW[cam] * temp3D) + tsPW[cam];
+//			temp3D = (RsPW[cam].t() * temp3D) - tsPW[cam];
 
 			P3D[cam][p][0] = temp3D.at<float>(0, 0);
 			P3D[cam][p][1] = temp3D.at<float>(1, 0);
 			P3D[cam][p][2] = temp3D.at<float>(2, 0);
+
+			cout<<P3D[cam][p]<<endl;
 		}
 
 	}
