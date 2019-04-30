@@ -28,7 +28,7 @@ static int howmanyframe = 2;
 static int howmanypc = 4;
 int NUMBER_OF_POINTS = 0;
 static int savepoints = 0; //0 for reading points from file
-static int quatmethod = 1; //1 for angle calc; 0 for document method
+static int quatmethod = 0; //1 for angle calc; 0 for document method; 2 for wikipedia method
 static int readjson = 1;// value set to 1 for read cam param from json files; 0 for txt file
 ifstream readfile;
 ofstream myfile;
@@ -54,6 +54,7 @@ vector<vector<vector<Point2f>>> pnts2d(howmanycam,
 
 vector<vector<Mat>> points3D(howmanycam);
 vector<vector<Mat>> points3Dnorm(howmanycam);
+vector<vector<Mat>> readPoints3D(howmanycam);
 
 vector<vector<Point3f>> P3D(howmanycam);
 
@@ -85,6 +86,7 @@ void CallBackFunc(int event, int x, int y, int flags, void* userdata) {
 				<< y << ") in " << whichcam << endl;
 //		Point2f point = ((Point_<float> ) x, (Point_<float> ) y);
 		Point2f point(x, y);
+//		Point2f point(y, x);
 		cout << "point is " << point << endl;
 
 		pnts2d[whichcam][whichframe].push_back(point);
@@ -285,12 +287,63 @@ int main() {
 				float qz = quat.at<float>(0, 3) =
 						object["camera"]["rotation"]["z"].asFloat();
 
-				qx = quat.at<float>(1, 0) *= -1;
-				//qy = quat.at<float>(2, 0) *= -1;
-				qz = quat.at<float>(3, 0) *= -1;
+//				qx = quat.at<float>(1, 0) *= -1;
+//				qy = quat.at<float>(2, 0) *= -1;
+//				qz = quat.at<float>(3, 0) *= -1;
 
 				/////////////////////////////
 				quats[cam].push_back(quat);
+
+				if(quatmethod==3){
+					float sqw = qw * qw;
+					float sqx = qx * qx;
+					float sqy = qy * qy;
+					float sqz = qz * qz;
+
+					// invs (inverse square length) is only required if quaternion is not already normalised
+					float invs = 1 / (sqx + sqy + sqz + sqw);
+					rotm.at<float>(0,0) = (sqx - sqy - sqz + sqw) * invs; // since sqw + sqx + sqy + sqz =1/invs*invs
+					rotm.at<float>(1,1) = (-sqx + sqy - sqz + sqw) * invs;
+					rotm.at<float>(2,2) = (-sqx - sqy + sqz + sqw) * invs;
+
+					float tmp1 = qx * qy;
+					float tmp2 = qz * qw;
+					rotm.at<float>(1,0) = 2.0 * (tmp1 + tmp2) * invs;
+					rotm.at<float>(0,1) = 2.0 * (tmp1 - tmp2) * invs;
+
+					tmp1 = qx * qz;
+					tmp2 = qy * qw;
+					rotm.at<float>(2,0) = 2.0 * (tmp1 - tmp2) * invs;
+					rotm.at<float>(0,2) = 2.0 * (tmp1 + tmp2) * invs;
+					tmp1 = qy * qz;
+					tmp2 = qx * qw;
+					rotm.at<float>(2,1) = 2.0 * (tmp1 + tmp2) * invs;
+					rotm.at<float>(1,2) = 2.0 * (tmp1 - tmp2) * invs;
+				}
+
+				if (quatmethod == 2) {
+
+					Mat rvec(3, 1, cv::DataType<float>::type, Scalar(1));
+
+					//x roll
+					float sinr_cosp = +2.0 * (qw * qx + qy * qz);
+					float cosr_cosp = +1.0 - 2.0 * (qx * qx + qy * qy);
+					rvec.at<float>(0, 0) = atan2(sinr_cosp, cosr_cosp);
+
+					//y pitch
+					float sinp = +2.0 * (qw * qy - qz * qx);
+					if (fabs(sinp) >= 1)
+						rvec.at<float>(1, 0) = copysign(M_PI / 2, sinp); // use 90 degrees if out of range
+					else
+						rvec.at<float>(1, 0) = asin(sinp);
+
+					//z yaw
+					float siny_cosp = +2.0 * (qw * qz + qx * qy);
+					float cosy_cosp = +1.0 - 2.0 * (qy * qy + qz * qz);
+					rvec.at<float>(2, 0) = atan2(siny_cosp, cosy_cosp);
+
+					Rodrigues(rvec, rotm);
+				}
 
 				if (quatmethod == 1) {
 
@@ -312,7 +365,7 @@ int main() {
 					rotm.at<float>(2, 0) = 2 * ((qx * qz) - (qw * qy));
 					rotm.at<float>(2, 1) = 2 * ((qw * qx) + (qy * qz));
 					rotm.at<float>(2, 2) = 2 * ((qy * qy) + (qz * qz) - 0.5);
-
+					rotm = rotm.t();
 				}
 
 				rotm = rotm.t();
@@ -755,68 +808,122 @@ int main() {
 	vector<vector<Point3f>> XYZ(howmanycam);
 
 
-	for (int i = 0; i < howmanycam; i++) {
+	for (int i = 1; i < howmanycam+1; i++) {
 		ifstream txtfile = ifstream("xyz/" + to_string(i) + ".xyz");
 
-		std::string line;
-		vector<string> linedata;
 
 
-		while (std::getline(txtfile, line)) {
-			std::stringstream linestream(line);
+		vector<string> line;
+		string singleline;
+		int c = 0;
+
+
+		while (std::getline(txtfile, singleline)) {
+			line.push_back(singleline);
+			std::stringstream linestream(singleline);
 			string val;
-			int c = 0;
-			Point3f temp;
+			vector<string> linedata;
+
+//			Point3f temp;
 			while (linestream >> val) {
 				linedata.push_back(val);
-				while (c < linedata.size()) {
-					if (c == 0)
-						temp.x = strtof((linedata[c]).c_str(), 0);
-					if (c == 1)
-						temp.y = strtof((linedata[c]).c_str(), 0);
-					if (c == 2)
-						temp.z = strtof((linedata[c]).c_str(), 0);
-
-					c++;
-				}
-				//cout<<val<<endl;
 			}
-			XYZ[i].push_back(temp);
+			c =0;
+			while (c < linedata.size()) {
+
+				float x = strtof((linedata[c]).c_str(), 0);
+				c++;
+				float y = strtof((linedata[c]).c_str(), 0);
+				c++;
+				float z = strtof((linedata[c]).c_str(), 0);
+				c++;
+
+				//cout<<val<<endl;
+				Point3f temp3D(x,y,z);
+
+				Mat point(4,1,CV_32F);
+				point.at<float>(0,0) = temp3D.x;
+				point.at<float>(1,0) = temp3D.y;
+				point.at<float>(2,0) = temp3D.z;
+				point.at<float>(3,0) = 1;
+				readPoints3D[i-1].push_back(point);
+
+//				point = RsNE[1] * point;
+//				point = point + tsNE[1];
+				temp3D.x = point.at<float>(0,0);
+				temp3D.y = point.at<float>(1,0);
+				temp3D.z = point.at<float>(2,0);
+
+
+				XYZ[i-1].push_back(temp3D);
+//				cout<<temp3D<<endl;
+			}
+
 		}
 
 
 	}
 
-	for(int i = 0; i<howmanycam; i++){
+	for(int i = 0; i<howmanycam-1; i++){
+		ofstream myfile;
+		myfile.open("image_points" + to_string(i)+ ".txt");
 		Rs[i][1].convertTo(Rs[i][1], CV_64F);
 		ts[i][1].convertTo(ts[i][1], CV_64F);
 		Ks[i][1].convertTo(Ks[i][1], CV_64F);
 		std::vector<cv::Point2f> image_points;
+		std::vector<cv::Point2f> image_pointsGen;
+//		cout<<XYZ[i]<<endl;
 
-		projectPoints(XYZ[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
-				image_points);
+//		projectPoints(XYZ[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
+//				image_points);
+//		projectPoints(P3D[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
+//						image_pointsGen);
+//		cout<<image_pointsGen<<endl;
+//		projectPoints(XYZ[i], Mat::eye(3,3, CV_64F), Mat::zeros(3,1,CV_64F), Ks[i][1], cv::noArray(),
+//						image_points);
 
-		float xmax = -1;
-		float xmin = 2000;
-		float ymax = -1;
-		float ymin = 2000;
+//		for (unsigned int k = 0; k < XYZ[i].size(); k++) {
+//			cv::Point3f orig_point = XYZ[i][k];
+//			image_points.push_back(cv::Point2f(Ks[i][i].at<float>(0,0) * orig_point.x / orig_point.z, //x' = f*x/z
+//			Ks[i][1].at<float>(1,1) * orig_point.y / orig_point.z)  //y' = f*y/z
+//					);
+//		}
+
+		for(unsigned int k = 0; k < readPoints3D[i].size(); k++){
+//			cout<<P[i][1]<<endl;
+//			cout<<readPoints3D[i][k]<<endl;
+			Mat im_point = P[i][1]* readPoints3D[i][k];
+//			cout<<im_point<<endl;
+			float u = im_point.at<float>(0,0)/im_point.at<float>(2,0);
+			float v = im_point.at<float>(1,0)/im_point.at<float>(2,0);
+			Point2f imagePoint(u,v);
+			image_points.push_back(imagePoint);
+		}
+
+		float xmax = -9999999;
+		float xmin = 9999999;
+		float ymax = -9999999;
+		float ymin = 9999999;
 		for (int j = 0; j < image_points.size(); j++) {
-			if (image_points[j].x < xmin) {
+			if (image_points[j].x < xmin ) {
 				xmin = image_points[j].x;
 			}
-			if (image_points[j].x > xmax) {
+			if (image_points[j].x > xmax ) {
 				xmax = image_points[j].x;
 			}
-			if (image_points[j].y < ymin) {
+			if (image_points[j].y < ymin ) {
 				ymin = image_points[j].y;
 			}
-			if (image_points[j].y > ymax) {
+			if (image_points[j].y > ymax ) {
 				ymax = image_points[j].y;
 			}
 		}
+		myfile<<image_points<<endl;
+//		cout<<image_points<<endl;
 		cout<<"for camera "<< to_string(i)<< " the min pixel values are(x,y) : "<<xmin<<", "<<ymin<<endl;
 		cout<<"for camera "<< to_string(i)<< " the max pixel values are(x,y) : "<<xmax<<", "<<ymax<<endl;
 		cout<<" "<<endl;
+		myfile.close();
 	}
 
 
