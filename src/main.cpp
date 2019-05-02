@@ -27,13 +27,16 @@ static int howmanycam = 3;
 static int howmanyframe = 2;
 static int howmanypc = 4;
 int NUMBER_OF_POINTS = 0;
-static int savepoints = 0; //0 for reading points from file
-static int quatmethod = 0; //1 for angle calc; 0 for document method; 2 for wikipedia method
+static int savepoints = 1; //0 for reading points from file
+static int quatmethod = 0; //1 for angle-axis calc; 0 for document method; 2 for wikipedia method; 3 for java
 static int readjson = 1;// value set to 1 for read cam param from json files; 0 for txt file
 ifstream readfile;
 ofstream myfile;
-string outputfilename = "points.txt";
-string inputdir = "data1904v2/cam0";
+string outputfilename = "pointsv5v2.txt";
+string inputdir = "data1904v5/cam0";
+
+int H;
+int W;
 
 //vector<Mat> srcs;
 //vector<Mat> grays;
@@ -140,6 +143,9 @@ void cornerHarris_demo(Mat &gray, int whichcam, int whichframe) {
 
 }
 
+
+
+
 int main() {
 
 	if (savepoints == 1) {
@@ -177,7 +183,7 @@ int main() {
 
 	RsPW[0] = Mat::eye(3, 3, CV_32F);
 	RsPW[1] = cv::Mat(3, 3, CV_32F, dataR1);
-	RsPW[2] = cv::Mat(3, 3, CV_32F, dataR3);
+	RsPW[2] = cv::Mat(3, 3, CV_32F, dataR2);
 	RsPW[3] = cv::Mat(3, 3, CV_32F, dataR3);
 
 	float dataT1[3] = { -0.127405, 0.094442, 0.0917713 };
@@ -188,7 +194,7 @@ int main() {
 
 	tsPW[0] = Mat::zeros(3, 1, CV_32F);
 	tsPW[1] = cv::Mat(3, 1, CV_32F, dataT1);
-	tsPW[2] = cv::Mat(3, 1, CV_32F, dataT3);
+	tsPW[2] = cv::Mat(3, 1, CV_32F, dataT2);
 	tsPW[3] = cv::Mat(3, 1, CV_32F, dataT3);
 
 	//Read transformation wrt anchor----------------------->
@@ -224,7 +230,7 @@ int main() {
 		RsNE[cam].at<float>(1, 2) = 2 * ((qy * qz) - (qw * qx));
 		RsNE[cam].at<float>(2, 0) = 2 * ((qx * qz) - (qw * qy));
 		RsNE[cam].at<float>(2, 1) = 2 * ((qw * qx) + (qy * qz));
-		RsNE[cam].at<float>(2, 2) = 2 * ((qy * qy) + (qz * qz) - 0.5);
+		RsNE[cam].at<float>(2, 2) = 2 * ((qw * qw) + (qz * qz) - 0.5);
 
 	}
 
@@ -240,6 +246,8 @@ int main() {
 			string inputfile = inputdir + to_string(cam) + "/"
 					+ to_string(frame) + ".jpg";
 			Mat img = imread(inputfile);
+			H = img.rows;
+			W = img.cols;
 			Mat gray;
 			cvtColor(img, gray, CV_BGR2GRAY);
 //			srcs.push_back(img);
@@ -287,9 +295,18 @@ int main() {
 				float qz = quat.at<float>(0, 3) =
 						object["camera"]["rotation"]["z"].asFloat();
 
-//				qx = quat.at<float>(1, 0) *= -1;
+//				cout<<(qw*qw)+(qx*qx)+(qy*qy)+(qz*qz)<<endl;
+
+				qx = quat.at<float>(1, 0) *= -1;
 //				qy = quat.at<float>(2, 0) *= -1;
-//				qz = quat.at<float>(3, 0) *= -1;
+				qz = quat.at<float>(3, 0) *= -1;
+
+//				qw = -quat.at<float>(0, 0);
+//				qx = -quat.at<float>(1, 0);
+//				qy = -quat.at<float>(3, 0);
+//				qz = quat.at<float>(2, 0) ;
+
+
 
 				/////////////////////////////
 				quats[cam].push_back(quat);
@@ -348,11 +365,25 @@ int main() {
 				if (quatmethod == 1) {
 
 					Mat rvec(3, 1, cv::DataType<float>::type, Scalar(1));
-					float angle = 2 * acos(qw);
+					float angle = 2 * acos(qw);//radian
+//					cout<<angle<<endl;
+//					angle = angle *(180.0/3.141592653589793238463);
+//					cout<<angle<<endl;
+//					float x = (qx / sqrt(1 - qw * qw));
+//					float y = (qy / sqrt(1 - qw * qw));
+//					float z = (qz / sqrt(1 - qw * qw));
+//					cout<<x<<", "<<y<<", "<<z<<endl;
+
 					rvec.at<float>(0, 0) = (qx / sqrt(1 - qw * qw)) * angle;
 					rvec.at<float>(1, 0) = (qy / sqrt(1 - qw * qw)) * angle;
 					rvec.at<float>(2, 0) = (qz / sqrt(1 - qw * qw)) * angle;
+
+//					rvec.at<float>(0, 0) = -(qx / sqrt(1 - qw * qw)) * angle;
+//					rvec.at<float>(1, 0) = (qy / sqrt(1 - qw * qw)) * angle;
+//					rvec.at<float>(2, 0) = -(qz / sqrt(1 - qw * qw)) * angle;
+
 					Rodrigues(rvec, rotm);
+//					euler2rot(rvec,rotm);
 				}
 
 				if (quatmethod == 0) {
@@ -364,25 +395,28 @@ int main() {
 					rotm.at<float>(1, 2) = 2 * ((qy * qz) - (qw * qx));
 					rotm.at<float>(2, 0) = 2 * ((qx * qz) - (qw * qy));
 					rotm.at<float>(2, 1) = 2 * ((qw * qx) + (qy * qz));
-					rotm.at<float>(2, 2) = 2 * ((qy * qy) + (qz * qz) - 0.5);
-					rotm = rotm.t();
+					rotm.at<float>(2, 2) = 2 * ((qw * qw) + (qz * qz) - 0.5);
+//					rotm = rotm.t();
 				}
+//				rotm = RsNE[cam] * rotm;
 
 				rotm = rotm.t();
+
 				Rs[cam].push_back(rotm);
 
 
 				tvec.at<float>(0, 0) =
 						object["camera"]["position"]["x"].asFloat();
 				tvec.at<float>(1, 0) =
-						object["camera"]["position"]["y"].asFloat();
+						object["camera"]["position"]["y"].asFloat()* -1;
 				tvec.at<float>(2, 0) =
-						object["camera"]["position"]["z"].asFloat();
+						object["camera"]["position"]["z"].asFloat() ;
 
 				//push tvec to Cs
 				Cs[cam].push_back(tvec);
 
-
+//				tvec = RsNE[cam] * tvec;
+//				tvec = tvec + tsNE[cam];
 				tvec = -rotm * tvec;
 
 
@@ -809,7 +843,7 @@ int main() {
 
 
 	for (int i = 1; i < howmanycam+1; i++) {
-		ifstream txtfile = ifstream("xyz/" + to_string(i) + ".xyz");
+		ifstream txtfile = ifstream("xyz/original/" + to_string(i) + ".xyz");
 
 
 
@@ -839,7 +873,7 @@ int main() {
 				c++;
 
 				//cout<<val<<endl;
-				Point3f temp3D(x,y,z);
+				Point3f temp3D(x,y,-z);
 
 				Mat point(4,1,CV_32F);
 				point.at<float>(0,0) = temp3D.x;
@@ -864,12 +898,12 @@ int main() {
 
 	}
 
-	for(int i = 0; i<howmanycam-1; i++){
+	for(int i = 0; i<howmanycam; i++){
 		ofstream myfile;
 		myfile.open("image_points" + to_string(i)+ ".txt");
-		Rs[i][1].convertTo(Rs[i][1], CV_64F);
-		ts[i][1].convertTo(ts[i][1], CV_64F);
-		Ks[i][1].convertTo(Ks[i][1], CV_64F);
+//		Rs[i][0].convertTo(Rs[i][0], CV_64F);
+//		ts[i][0].convertTo(ts[i][0], CV_64F);
+//		Ks[i][0].convertTo(Ks[i][0], CV_64F);
 		std::vector<cv::Point2f> image_points;
 		std::vector<cv::Point2f> image_pointsGen;
 //		cout<<XYZ[i]<<endl;
@@ -892,7 +926,8 @@ int main() {
 		for(unsigned int k = 0; k < readPoints3D[i].size(); k++){
 //			cout<<P[i][1]<<endl;
 //			cout<<readPoints3D[i][k]<<endl;
-			Mat im_point = P[i][1]* readPoints3D[i][k];
+			Mat im_point = P[i][0]* readPoints3D[i][k];
+//			Mat im_point = Ks[i][0] * Rts[i][0] * readPoints3D[i][k];
 //			cout<<im_point<<endl;
 			float u = im_point.at<float>(0,0)/im_point.at<float>(2,0);
 			float v = im_point.at<float>(1,0)/im_point.at<float>(2,0);
@@ -919,9 +954,22 @@ int main() {
 			}
 		}
 		myfile<<image_points<<endl;
+		Mat projection = Mat::zeros(H, W, CV_32FC1);
+//		imshow("projection", projection);
+//		waitKey(0);
+		for(size_t c = 0; c<image_points.size(); c++){
+			int x = (int)image_points[c].x;
+			int y = (int)image_points[c].y;
+//			projection.at<float>(x,y) = 1;
+			projection.at<float>(Point(x,y)) = 1;
+//			cout<<x<<", "<<y<<endl;
+		}
+		cout<<" "<<endl;
+		imshow("projection", projection);
+		waitKey(0);
 //		cout<<image_points<<endl;
-		cout<<"for camera "<< to_string(i)<< " the min pixel values are(x,y) : "<<xmin<<", "<<ymin<<endl;
-		cout<<"for camera "<< to_string(i)<< " the max pixel values are(x,y) : "<<xmax<<", "<<ymax<<endl;
+//		cout<<"for camera "<< to_string(i)<< " the min pixel values are(x,y) : "<<xmin<<", "<<ymin<<endl;
+//		cout<<"for camera "<< to_string(i)<< " the max pixel values are(x,y) : "<<xmax<<", "<<ymax<<endl;
 		cout<<" "<<endl;
 		myfile.close();
 	}
