@@ -27,9 +27,10 @@ static int howmanycam = 3;
 static int howmanyframe = 2;
 static int howmanypc = 4;
 int NUMBER_OF_POINTS = 0;
-static int savepoints = 1; //0 for reading points from file
+static int savepoints = 0; //0 for reading points from file
 static int quatmethod = 0; //1 for angle-axis calc; 0 for document method; 2 for wikipedia method; 3 for java
 static int readjson = 1;// value set to 1 for read cam param from json files; 0 for txt file
+static int doprojection = 1;
 ifstream readfile;
 ofstream myfile;
 string outputfilename = "pointsv5v2.txt";
@@ -48,6 +49,12 @@ vector<vector<Mat>> Rts(howmanycam);
 vector<vector<Mat>> ts(howmanycam);
 vector<vector<Mat>> quats(howmanycam);
 vector<vector<Mat>> Cs(howmanycam);
+
+vector<vector<Mat>> Rs_refined(howmanycam);
+vector<vector<Mat>> Rts_refined(howmanycam);
+vector<vector<Mat>> ts_refined(howmanycam);
+vector<vector<Mat>> P_refined(howmanycam);
+
 
 vector<vector<vector<Point2f>>> pnts2d(howmanycam,
 		vector<vector<Point2f> >(howmanyframe));
@@ -813,6 +820,39 @@ int main() {
 	cout << "Total Number of points in one frame : " << NUMBER_OF_POINTS
 			<< endl;
 
+	//------------------Refine poses here----------->
+	for(int cam =0; cam<howmanycam; cam++){
+		for(int frame = 0; frame<howmanyframe; frame++){
+			Mat rotm = RsPW[cam] * Rs[cam][frame];
+			Mat tvec = ts[cam][frame] + tsPW[cam];
+			Mat Rt(3, 4, cv::DataType<float>::type, Scalar(1));
+
+			Rs_refined[cam].push_back(rotm);
+			ts_refined[cam].push_back(tvec);
+
+			Rt.at<float>(0, 0) = rotm.at<float>(0, 0);
+			Rt.at<float>(0, 1) = rotm.at<float>(0, 1);
+			Rt.at<float>(0, 2) = rotm.at<float>(0, 2);
+			Rt.at<float>(1, 0) = rotm.at<float>(1, 0);
+			Rt.at<float>(1, 1) = rotm.at<float>(1, 1);
+			Rt.at<float>(1, 2) = rotm.at<float>(1, 2);
+			Rt.at<float>(2, 0) = rotm.at<float>(2, 0);
+			Rt.at<float>(2, 1) = rotm.at<float>(2, 1);
+			Rt.at<float>(2, 2) = rotm.at<float>(2, 2);
+			Rt.at<float>(0, 3) = tvec.at<float>(0, 0);
+			Rt.at<float>(1, 3) = tvec.at<float>(1, 0);
+			Rt.at<float>(2, 3) = tvec.at<float>(2, 0);
+
+			Rts_refined[cam].push_back(Rt);
+
+			Mat Ptemp = Ks[cam][frame] * Rt;
+			P_refined[cam].push_back(Ptemp);
+			cout<<Ptemp<<endl;
+
+		}
+	}
+
+
 //	Mat fun1to0 = findFundamentalMat(pnts2d[0][0],pnts2d[1][0],CV_FM_RANSAC);
 //	cout<<fun1to0<<endl;
 //
@@ -839,140 +879,140 @@ int main() {
 
 	//Read cropped XYZs here-------->
 
-	vector<vector<Point3f>> XYZ(howmanycam);
+	if (doprojection == 1) {
+		vector<vector<Point3f>> XYZ(howmanycam);
 
+		for (int i = 1; i < howmanycam + 1; i++) {
+			ifstream txtfile = ifstream(
+					"xyz/original/" + to_string(i) + ".xyz");
 
-	for (int i = 1; i < howmanycam+1; i++) {
-		ifstream txtfile = ifstream("xyz/original/" + to_string(i) + ".xyz");
+			vector<string> line;
+			string singleline;
+			int c = 0;
 
+			while (std::getline(txtfile, singleline)) {
+				line.push_back(singleline);
+				std::stringstream linestream(singleline);
+				string val;
+				vector<string> linedata;
 
+				//			Point3f temp;
+				while (linestream >> val) {
+					linedata.push_back(val);
+				}
+				c = 0;
+				while (c < linedata.size()) {
 
-		vector<string> line;
-		string singleline;
-		int c = 0;
+					float x = strtof((linedata[c]).c_str(), 0);
+					c++;
+					float y = strtof((linedata[c]).c_str(), 0);
+					c++;
+					float z = strtof((linedata[c]).c_str(), 0);
+					c++;
 
+					//cout<<val<<endl;
+					Point3f temp3D(x, y, -z);
 
-		while (std::getline(txtfile, singleline)) {
-			line.push_back(singleline);
-			std::stringstream linestream(singleline);
-			string val;
-			vector<string> linedata;
+					Mat point(4, 1, CV_32F);
+					point.at<float>(0, 0) = temp3D.x;
+					point.at<float>(1, 0) = temp3D.y;
+					point.at<float>(2, 0) = temp3D.z;
+					point.at<float>(3, 0) = 1;
+					readPoints3D[i - 1].push_back(point);
 
-//			Point3f temp;
-			while (linestream >> val) {
-				linedata.push_back(val);
-			}
-			c =0;
-			while (c < linedata.size()) {
+					//				point = RsNE[1] * point;
+					//				point = point + tsNE[1];
+					temp3D.x = point.at<float>(0, 0);
+					temp3D.y = point.at<float>(1, 0);
+					temp3D.z = point.at<float>(2, 0);
 
-				float x = strtof((linedata[c]).c_str(), 0);
-				c++;
-				float y = strtof((linedata[c]).c_str(), 0);
-				c++;
-				float z = strtof((linedata[c]).c_str(), 0);
-				c++;
+					XYZ[i - 1].push_back(temp3D);
+					//				cout<<temp3D<<endl;
+				}
 
-				//cout<<val<<endl;
-				Point3f temp3D(x,y,-z);
-
-				Mat point(4,1,CV_32F);
-				point.at<float>(0,0) = temp3D.x;
-				point.at<float>(1,0) = temp3D.y;
-				point.at<float>(2,0) = temp3D.z;
-				point.at<float>(3,0) = 1;
-				readPoints3D[i-1].push_back(point);
-
-//				point = RsNE[1] * point;
-//				point = point + tsNE[1];
-				temp3D.x = point.at<float>(0,0);
-				temp3D.y = point.at<float>(1,0);
-				temp3D.z = point.at<float>(2,0);
-
-
-				XYZ[i-1].push_back(temp3D);
-//				cout<<temp3D<<endl;
 			}
 
 		}
 
+		for (int i = 0; i < howmanycam; i++) {
+			ofstream myfile;
+			myfile.open("image_points" + to_string(i) + ".txt");
+			//		Rs[i][0].convertTo(Rs[i][0], CV_64F);
+			//		ts[i][0].convertTo(ts[i][0], CV_64F);
+			//		Ks[i][0].convertTo(Ks[i][0], CV_64F);
+			std::vector<cv::Point2f> image_points;
+			std::vector<cv::Point2f> image_pointsGen;
+			//		cout<<XYZ[i]<<endl;
 
+			//		projectPoints(XYZ[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
+			//				image_points);
+			//		projectPoints(P3D[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
+			//						image_pointsGen);
+			//		cout<<image_pointsGen<<endl;
+			//		projectPoints(XYZ[i], Mat::eye(3,3, CV_64F), Mat::zeros(3,1,CV_64F), Ks[i][1], cv::noArray(),
+			//						image_points);
+
+			//		for (unsigned int k = 0; k < XYZ[i].size(); k++) {
+			//			cv::Point3f orig_point = XYZ[i][k];
+			//			image_points.push_back(cv::Point2f(Ks[i][i].at<float>(0,0) * orig_point.x / orig_point.z, //x' = f*x/z
+			//			Ks[i][1].at<float>(1,1) * orig_point.y / orig_point.z)  //y' = f*y/z
+			//					);
+			//		}
+
+			for (unsigned int k = 0; k < readPoints3D[i].size(); k++) {
+				//			cout<<P[i][1]<<endl;
+				//			cout<<readPoints3D[i][k]<<endl;
+//				Mat im_point = P[i][0] * readPoints3D[i][k];
+				Mat im_point = P_refined[i][0] * readPoints3D[i][k];
+				//			Mat im_point = Ks[i][0] * Rts[i][0] * readPoints3D[i][k];
+				//			cout<<im_point<<endl;
+				float u = im_point.at<float>(0, 0) / im_point.at<float>(2, 0);
+				float v = im_point.at<float>(1, 0) / im_point.at<float>(2, 0);
+				Point2f imagePoint(u, v);
+				image_points.push_back(imagePoint);
+			}
+
+			float xmax = -9999999;
+			float xmin = 9999999;
+			float ymax = -9999999;
+			float ymin = 9999999;
+			for (int j = 0; j < image_points.size(); j++) {
+				if (image_points[j].x < xmin) {
+					xmin = image_points[j].x;
+				}
+				if (image_points[j].x > xmax) {
+					xmax = image_points[j].x;
+				}
+				if (image_points[j].y < ymin) {
+					ymin = image_points[j].y;
+				}
+				if (image_points[j].y > ymax) {
+					ymax = image_points[j].y;
+				}
+			}
+			myfile << image_points << endl;
+			Mat projection = Mat::zeros(H, W, CV_32FC1);
+			//		imshow("projection", projection);
+			//		waitKey(0);
+			for (size_t c = 0; c < image_points.size(); c++) {
+				int x = (int) image_points[c].x;
+				int y = (int) image_points[c].y;
+				//			projection.at<float>(x,y) = 1;
+				projection.at<float>(Point(x, y)) = 1;
+				//			cout<<x<<", "<<y<<endl;
+			}
+			cout << " " << endl;
+			imshow("projection", projection);
+			waitKey(0);
+			//		cout<<image_points<<endl;
+			//		cout<<"for camera "<< to_string(i)<< " the min pixel values are(x,y) : "<<xmin<<", "<<ymin<<endl;
+			//		cout<<"for camera "<< to_string(i)<< " the max pixel values are(x,y) : "<<xmax<<", "<<ymax<<endl;
+			cout << " " << endl;
+			myfile.close();
+		}
 	}
 
-	for(int i = 0; i<howmanycam; i++){
-		ofstream myfile;
-		myfile.open("image_points" + to_string(i)+ ".txt");
-//		Rs[i][0].convertTo(Rs[i][0], CV_64F);
-//		ts[i][0].convertTo(ts[i][0], CV_64F);
-//		Ks[i][0].convertTo(Ks[i][0], CV_64F);
-		std::vector<cv::Point2f> image_points;
-		std::vector<cv::Point2f> image_pointsGen;
-//		cout<<XYZ[i]<<endl;
 
-//		projectPoints(XYZ[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
-//				image_points);
-//		projectPoints(P3D[i], Rs[i][1], ts[i][1], Ks[i][1], cv::noArray(),
-//						image_pointsGen);
-//		cout<<image_pointsGen<<endl;
-//		projectPoints(XYZ[i], Mat::eye(3,3, CV_64F), Mat::zeros(3,1,CV_64F), Ks[i][1], cv::noArray(),
-//						image_points);
-
-//		for (unsigned int k = 0; k < XYZ[i].size(); k++) {
-//			cv::Point3f orig_point = XYZ[i][k];
-//			image_points.push_back(cv::Point2f(Ks[i][i].at<float>(0,0) * orig_point.x / orig_point.z, //x' = f*x/z
-//			Ks[i][1].at<float>(1,1) * orig_point.y / orig_point.z)  //y' = f*y/z
-//					);
-//		}
-
-		for(unsigned int k = 0; k < readPoints3D[i].size(); k++){
-//			cout<<P[i][1]<<endl;
-//			cout<<readPoints3D[i][k]<<endl;
-			Mat im_point = P[i][0]* readPoints3D[i][k];
-//			Mat im_point = Ks[i][0] * Rts[i][0] * readPoints3D[i][k];
-//			cout<<im_point<<endl;
-			float u = im_point.at<float>(0,0)/im_point.at<float>(2,0);
-			float v = im_point.at<float>(1,0)/im_point.at<float>(2,0);
-			Point2f imagePoint(u,v);
-			image_points.push_back(imagePoint);
-		}
-
-		float xmax = -9999999;
-		float xmin = 9999999;
-		float ymax = -9999999;
-		float ymin = 9999999;
-		for (int j = 0; j < image_points.size(); j++) {
-			if (image_points[j].x < xmin ) {
-				xmin = image_points[j].x;
-			}
-			if (image_points[j].x > xmax ) {
-				xmax = image_points[j].x;
-			}
-			if (image_points[j].y < ymin ) {
-				ymin = image_points[j].y;
-			}
-			if (image_points[j].y > ymax ) {
-				ymax = image_points[j].y;
-			}
-		}
-		myfile<<image_points<<endl;
-		Mat projection = Mat::zeros(H, W, CV_32FC1);
-//		imshow("projection", projection);
-//		waitKey(0);
-		for(size_t c = 0; c<image_points.size(); c++){
-			int x = (int)image_points[c].x;
-			int y = (int)image_points[c].y;
-//			projection.at<float>(x,y) = 1;
-			projection.at<float>(Point(x,y)) = 1;
-//			cout<<x<<", "<<y<<endl;
-		}
-		cout<<" "<<endl;
-		imshow("projection", projection);
-		waitKey(0);
-//		cout<<image_points<<endl;
-//		cout<<"for camera "<< to_string(i)<< " the min pixel values are(x,y) : "<<xmin<<", "<<ymin<<endl;
-//		cout<<"for camera "<< to_string(i)<< " the max pixel values are(x,y) : "<<xmax<<", "<<ymax<<endl;
-		cout<<" "<<endl;
-		myfile.close();
-	}
 
 
 	return 0;
